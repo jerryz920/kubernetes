@@ -57,6 +57,8 @@ type RuntimeHelper interface {
 	// supplemental groups for the Pod. These extra supplemental groups come
 	// from annotations on persistent volumes that the pod depends on.
 	GetExtraSupplementalGroupsForPod(pod *v1.Pod) []int64
+	// Ydev(Yan) Getting ConfigMap and make environmental variables
+	GetConfigMap(namespace, name string) (*v1.ConfigMap, error)
 }
 
 // ShouldContainerBeRestarted checks whether a container needs to be restarted.

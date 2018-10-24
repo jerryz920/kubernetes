@@ -25,6 +25,7 @@ import (
 
 	"k8s.io/component-base/logs"
 	_ "k8s.io/component-base/metrics/prometheus/clientgo" // load all the prometheus client-go plugins
+	"k8s.io/klog"
 	"k8s.io/kubernetes/cmd/kube-apiserver/app"
 )
 
@@ -39,6 +40,7 @@ func main() {
 	// utilflag.InitFlags()
 	logs.InitLogs()
 	defer logs.FlushLogs()
+	klog.Infof("Ydev: This is executed and printed!\n")
 
 	if err := command.Execute(); err != nil {
 		os.Exit(1)

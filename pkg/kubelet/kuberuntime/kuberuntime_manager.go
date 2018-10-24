@@ -751,9 +751,29 @@ func (m *kubeGenericRuntimeManager) SyncPod(pod *v1.Pod, podStatus *kubecontaine
 		// If we ever allow updating a pod from non-host-network to
 		// host-network, we may use a stale IP.
 		if !kubecontainer.IsHostNetworkPod(pod) {
-			// Overwrite the podIPs passed in the pod status, since we just started the pod sandbox.
+			// Overwrite the podIP passed in the pod status, since we just started the pod sandbox.
 			podIPs = m.determinePodSandboxIPs(pod.Namespace, pod.Name, podSandboxStatus)
 			klog.V(4).Infof("Determined the ip %v for pod %q after sandbox changed", podIPs, format.Pod(pod))
+
+			// The right place to attest
+			klog.Infof("attesting %v on %v", pod.Name, podIPs)
+			m.attest(pod, podIPs[0])
+
+			for _, v := range pod.Spec.Volumes {
+				klog.Infof("Ydev: checking volume %s", v.Name)
+				if v.VolumeSource.ConfigMap != nil {
+					configMap, err := m.runtimeHelper.GetConfigMap(pod.Namespace, v.VolumeSource.ConfigMap.Name)
+					if err != nil {
+						klog.Infof("Ydev: err getting configmap %s, %s: %s", pod.Namespace, v.VolumeSource.ConfigMap.Name, err)
+					} else {
+						for k, v := range configMap.Data {
+							klog.Infof("Ydev, configMap data: {%v:%v}", k, v)
+						}
+					}
+
+				}
+			}
+
 		}
 	}
 

@@ -34,10 +34,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilnet "k8s.io/apimachinery/pkg/util/net"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/generic"
 	"k8s.io/apiserver/pkg/storage"
 	"k8s.io/apiserver/pkg/storage/names"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	"k8s.io/klog"
 	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	podutil "k8s.io/kubernetes/pkg/api/pod"
 	api "k8s.io/kubernetes/pkg/apis/core"
@@ -72,6 +74,28 @@ func (podStrategy) PrepareForCreate(ctx context.Context, obj runtime.Object) {
 	}
 
 	podutil.DropDisabledPodFields(pod, nil)
+	if pod.Annotations == nil {
+		pod.Annotations = make(map[string]string)
+	}
+
+	if user, ok := genericapirequest.UserFrom(ctx); ok {
+		//pod.Annotations["latte.user"] = user.Extra()["key"]
+		if extra := user.GetExtra(); extra != nil {
+			if keys, ok := extra["latte.pubkey"]; ok {
+				pod.Annotations["latte.pubkey"] = keys[0]
+			} else {
+				klog.Infof("Ydev no pubkey for pod creation", extra)
+			}
+		}
+		if name := user.GetName(); name != "" {
+			pod.Annotations["latte.user"] = name
+		}
+	}
+
+	if creator, ok := genericapirequest.LatteCreatorFrom(ctx); ok {
+		klog.Infof("creator of pod %v: %s", pod.UID, creator)
+		pod.Annotations["latte.creator"] = creator
+	}
 }
 
 // PrepareForUpdate clears fields that are not allowed to be set by end users on update.

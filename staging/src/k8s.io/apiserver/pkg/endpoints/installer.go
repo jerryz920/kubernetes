@@ -179,6 +179,7 @@ func GetResourceKind(groupVersion schema.GroupVersion, storage rest.Storage, typ
 }
 
 func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storage, ws *restful.WebService) (*metav1.APIResource, error) {
+	// Ydev: this is the place to setup all the handlers for restful APIs.
 	admit := a.group.Admit
 
 	optionsExternalVersion := a.group.GroupVersion
@@ -229,7 +230,9 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 
 	// what verbs are supported by the storage, used to know what verbs we support per path
 	creater, isCreater := storage.(rest.Creater)
+	//glog.Errorf("kind = %v, is creator=%v", kind, isCreater)
 	namedCreater, isNamedCreater := storage.(rest.NamedCreater)
+	//glog.Errorf("kind = %v, is isNamedCreator=%v", kind, isCreater)
 	lister, isLister := storage.(rest.Lister)
 	getter, isGetter := storage.(rest.Getter)
 	getterWithOptions, isGetterWithOptions := storage.(rest.GetterWithOptions)

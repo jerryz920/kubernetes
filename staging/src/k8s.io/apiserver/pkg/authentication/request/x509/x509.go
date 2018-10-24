@@ -19,6 +19,7 @@ package x509
 import (
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"time"
@@ -29,6 +30,7 @@ import (
 	"k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/component-base/metrics"
 	"k8s.io/component-base/metrics/legacyregistry"
+	"k8s.io/klog"
 )
 
 /*
@@ -128,6 +130,8 @@ func (a *Authenticator) AuthenticateRequest(req *http.Request) (*authenticator.R
 	remaining := req.TLS.PeerCertificates[0].NotAfter.Sub(time.Now())
 	clientCertificateExpirationHistogram.Observe(remaining.Seconds())
 	chains, err := req.TLS.PeerCertificates[0].Verify(optsCopy)
+	//glog.Errorf("Ydev1 what is inside the cert? %T\n[ %v %v ]", req.TLS.PeerCertificates[0].PublicKey,
+	//	req.TLS.PeerCertificates[0].PublicKey, req.TLS.PeerCertificates[0].PublicKeyAlgorithm)
 	if err != nil {
 		return nil, false, err
 	}
@@ -171,6 +175,7 @@ func NewDynamicCAVerifier(verifyOptionsFn VerifyOptionFunc, auth authenticator.R
 // AuthenticateRequest verifies the presented client certificate, then delegates to the wrapped auth
 func (a *Verifier) AuthenticateRequest(req *http.Request) (*authenticator.Response, bool, error) {
 	if req.TLS == nil || len(req.TLS.PeerCertificates) == 0 {
+
 		return nil, false, nil
 	}
 
@@ -193,7 +198,11 @@ func (a *Verifier) AuthenticateRequest(req *http.Request) (*authenticator.Respon
 	if err := a.verifySubject(req.TLS.PeerCertificates[0].Subject); err != nil {
 		return nil, false, err
 	}
+	// Ydev: hacking with the pubkey hash
+	//glog.Errorf("Ydev what is inside the cert? %T\n[ %v %v ]", req.TLS.PeerCertificates[0].PublicKey,
+	//	req.TLS.PeerCertificates[0].PublicKey, req.TLS.PeerCertificates[0].PublicKeyAlgorithm)
 	return a.auth.AuthenticateRequest(req)
+
 }
 
 func (a *Verifier) verifySubject(subject pkix.Name) error {
@@ -223,10 +232,23 @@ var CommonNameUserConversion = UserConversionFunc(func(chain []*x509.Certificate
 	if len(chain[0].Subject.CommonName) == 0 {
 		return nil, false, nil
 	}
+	// Ydev: The place to hit the Pub key!
+	extra := make(map[string][]string)
+
+	keydata, err := x509.MarshalPKIXPublicKey(chain[0].PublicKey)
+	if err != nil {
+		klog.Errorf("Ydev: failed to marshal public key into PKIX format, %v", err)
+	} else {
+		keyencoded := base64.RawStdEncoding.EncodeToString(keydata)
+		//glog.Infof("Ydev: marshal public key: %v", keyencoded)
+		extra["latte.pubkey"] = []string{keyencoded}
+	}
+
 	return &authenticator.Response{
 		User: &user.DefaultInfo{
 			Name:   chain[0].Subject.CommonName,
 			Groups: chain[0].Subject.Organization,
+			Extra:  extra,
 		},
 	}, true, nil
 })
