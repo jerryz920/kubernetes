@@ -1,6 +1,9 @@
+#!/bin/bash
 
 
-workers=`seq 1 5`
+source env.sh
+workers=$WORKERS
+
 
 for m in kubelet kubectl kubeadm; do
   docker-machine scp _output/bin/$m master:
