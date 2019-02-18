@@ -1,1 +1,1 @@
-export WORKERS=`seq 1 5`
+export WORKERS=`seq 1 6`
