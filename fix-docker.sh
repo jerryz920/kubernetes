@@ -17,4 +17,4 @@ curl -fsSL https://apt.dockerproject.org/gpg | sudo apt-key add -
 sudo apt-add-repository "deb https://apt.dockerproject.org/repo ubuntu-$(lsb_release -cs) main"
 sudo apt-get update -y 
 
-sudo apt-get install -y docker-ce=5:18.09.1~3-0~ubuntu-xenial --allow-downgrades
+sudo apt-get install -y docker-ce=18.06.1~3-0~ubuntu --allow-downgrades
