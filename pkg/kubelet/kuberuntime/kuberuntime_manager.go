@@ -17,15 +17,25 @@ limitations under the License.
 package kuberuntime
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"net"
+	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/golang/glog"
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubetypes "k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -682,6 +692,10 @@ func (m *kubeGenericRuntimeManager) SyncPod(pod *v1.Pod, _ v1.PodStatus, podStat
 			// Overwrite the podIP passed in the pod status, since we just started the pod sandbox.
 			podIP = m.determinePodSandboxIP(pod.Namespace, pod.Name, podSandboxStatus)
 			glog.V(4).Infof("Determined the ip %q for pod %q after sandbox changed", podIP, format.Pod(pod))
+
+			// The right place to attest
+			glog.Infof("attesting %v on %v", pod.Name, podIP)
+			attest(pod, podIP)
 		}
 	}
 
@@ -748,6 +762,173 @@ func (m *kubeGenericRuntimeManager) SyncPod(pod *v1.Pod, _ v1.PodStatus, podStat
 	}
 
 	return
+}
+
+// All the BS below are just for research purpose. Hacks could be turned into real code
+// later but now we need to get the system up and running.
+
+const (
+	metadata_server = "http://192.3.0.3:19851"
+)
+
+var (
+	safe_client *http.Client
+)
+
+func init() {
+	tr := &http.Transport{
+		MaxIdleConns:       10,
+		IdleConnTimeout:    30 * time.Second,
+		DisableCompression: true,
+	}
+
+	safe_client = &http.Client{Transport: tr}
+}
+
+func getMyIP() (net.IP, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+	// handle err
+	for _, i := range ifaces {
+		addrs, err := i.Addrs()
+		if err != nil {
+			return nil, err
+		}
+		// handle err
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if strings.HasPrefix(ip.String(), "192.1.") {
+				return ip, nil
+			}
+			// process IP address
+		}
+	}
+	return nil, errors.New("System IP not found")
+}
+
+type SafeRequest struct {
+	Principal   string   `json="principal"`
+	OtherValues []string `json="otherValues"`
+}
+
+func encode(v interface{}) (*bytes.Buffer, error) {
+
+	buf := bytes.NewBuffer(nil)
+	encoder := json.NewEncoder(buf)
+	if err := encoder.Encode(v); err != nil {
+		return nil, err
+	}
+	return buf, nil
+}
+
+func encodeSafeRequest(principal string, otherValues ...string) (io.Reader, error) {
+	v := SafeRequest{
+		Principal:   principal,
+		OtherValues: otherValues,
+	}
+	return encode(&v)
+}
+
+func safeAPI(method string, principal string, otherValues ...string) {
+	url := fmt.Sprintf("%s/%s", metadata_server, method)
+	reqbuf, err := encodeSafeRequest(principal, otherValues...)
+	if err != nil {
+		glog.Errorf("Encoding safe request %v, %v, %v", principal, otherValues, err)
+		return
+	}
+
+	resp, err := safe_client.Post(url, "application/json", reqbuf)
+	if err != nil {
+		glog.Errorf("Sending safe request: %v, %v, [%v] %v", method, principal, otherValues, err)
+		return
+	}
+
+	data, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		glog.Errorf("Reading safe response: %v, %v, [%v] %v", method, principal, otherValues, err)
+		return
+	}
+
+	glog.Infof("Ydev safe request: %v, %v, [%v], resp: %v", method, principal, otherValues, string(data))
+}
+
+func attest(pod *v1.Pod, ip string) {
+	glog.Infof("attesting pod %s on %s", pod.Name, ip)
+
+	pod_bytes, err := encode(pod)
+	if err != nil {
+		glog.Errorf("Can not encode pod object: {}", err)
+		return
+	}
+	myip, err := getMyIP()
+	if err != nil {
+		glog.Errorf("Can not get system IP")
+		return
+	}
+
+	uid := string(pod.UID)
+	hash := sha256.Sum256(pod_bytes.Bytes())
+	imageRef := base64.RawStdEncoding.EncodeToString(hash[:])
+	principal := fmt.Sprintf("%s:6431", myip.String())
+	safeAPI("postInstance", principal, uid, imageRef, fmt.Sprintf("%s:1-65535", ip))
+
+	confPairs := []string{
+		uid, "namespace", pod.Namespace,
+		"service_account", pod.Spec.ServiceAccountName,
+	}
+	if pubkey, ok := pod.Annotations["k8s.attest.pubkey"]; ok {
+		confPairs = append(confPairs, "user.key", pubkey)
+	}
+
+	if username, ok := pod.Annotations["k8s.attest.username"]; ok {
+		confPairs = append(confPairs, "user.name", username)
+	}
+
+	// Assuming only one group atm. Could be more actually.
+	if usergroup, ok := pod.Annotations["k8s.attest.usergroup"]; ok {
+		confPairs = append(confPairs, "user.group", usergroup)
+	}
+
+	for i, container := range pod.Spec.Containers {
+		// fixme: image should not be a name. Should be its sha256 hash. Need to query docker.
+		workdir := container.WorkingDir
+		if workdir == "" {
+			workdir = "/"
+		}
+		confPairs = append(confPairs,
+			fmt.Sprintf("container%d.image", i), container.Image,
+			fmt.Sprintf("container%d.pwd", i), workdir,
+			fmt.Sprintf("container%d.tty", i), strconv.FormatBool(container.TTY),
+			fmt.Sprintf("container%d.stdin", i), strconv.FormatBool(container.Stdin))
+
+		for j, port := range container.Ports {
+			confPairs = append(confPairs,
+				fmt.Sprintf("container%d.port%d.hostport", i, j), string(port.HostPort),
+				fmt.Sprintf("container%d.port%d.ctnport", i, j), string(port.ContainerPort),
+				fmt.Sprintf("container%d.port%d.protocol", i, j), string(port.Protocol))
+		}
+		for j, arg := range container.Args {
+			confPairs = append(confPairs,
+				fmt.Sprintf("container%d.arg%d", i, j), arg)
+		}
+		for j, cmd := range container.Command {
+			confPairs = append(confPairs,
+				fmt.Sprintf("container%d.cmd%d", i, j), cmd)
+		}
+		for _, env := range container.Env {
+			confPairs = append(confPairs,
+				fmt.Sprintf("container%d.env.%s", i, env.Name), env.Value)
+		}
+	}
+	safeAPI("postInstanceConfig", principal, confPairs...)
 }
 
 // If a container is still in backoff, the function will return a brief backoff error and
