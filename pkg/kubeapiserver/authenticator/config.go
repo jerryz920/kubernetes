@@ -17,6 +17,8 @@ limitations under the License.
 package authenticator
 
 import (
+	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/go-openapi/spec"
@@ -306,6 +308,8 @@ func newServiceAccountAuthenticator(iss string, audiences []string, keyfiles []s
 // newAuthenticatorFromClientCAFile returns an authenticator.Request or an error
 func newAuthenticatorFromClientCAFile(clientCAFile string) (authenticator.Request, error) {
 	roots, err := certutil.NewPool(clientCAFile)
+	fmt.Println("Ydev: client cert pool")
+	debug.PrintStack()
 	if err != nil {
 		return nil, err
 	}

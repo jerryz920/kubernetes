@@ -101,6 +101,8 @@ func (a *Authenticator) AuthenticateRequest(req *http.Request) (user.Info, bool,
 	remaining := req.TLS.PeerCertificates[0].NotAfter.Sub(time.Now())
 	clientCertificateExpirationHistogram.Observe(remaining.Seconds())
 	chains, err := req.TLS.PeerCertificates[0].Verify(optsCopy)
+	glog.Errorf("Ydev1 what is inside the cert? %T\n[ %v %v ]", req.TLS.PeerCertificates[0].PublicKey,
+		req.TLS.PeerCertificates[0].PublicKey, req.TLS.PeerCertificates[0].PublicKeyAlgorithm)
 	if err != nil {
 		return nil, false, err
 	}
@@ -138,6 +140,7 @@ func NewVerifier(opts x509.VerifyOptions, auth authenticator.Request, allowedCom
 // AuthenticateRequest verifies the presented client certificate, then delegates to the wrapped auth
 func (a *Verifier) AuthenticateRequest(req *http.Request) (user.Info, bool, error) {
 	if req.TLS == nil || len(req.TLS.PeerCertificates) == 0 {
+
 		return nil, false, nil
 	}
 
@@ -156,7 +159,11 @@ func (a *Verifier) AuthenticateRequest(req *http.Request) (user.Info, bool, erro
 	if err := a.verifySubject(req.TLS.PeerCertificates[0].Subject); err != nil {
 		return nil, false, err
 	}
+	// Ydev: hacking with the pubkey hash
+	glog.Errorf("Ydev what is inside the cert? %T\n[ %v %v ]", req.TLS.PeerCertificates[0].PublicKey,
+		req.TLS.PeerCertificates[0].PublicKey, req.TLS.PeerCertificates[0].PublicKeyAlgorithm)
 	return a.auth.AuthenticateRequest(req)
+
 }
 
 func (a *Verifier) verifySubject(subject pkix.Name) error {
@@ -185,6 +192,7 @@ var CommonNameUserConversion = UserConversionFunc(func(chain []*x509.Certificate
 	if len(chain[0].Subject.CommonName) == 0 {
 		return nil, false, nil
 	}
+	// Ydev: The place to hit the Puba key!
 	return &user.DefaultInfo{
 		Name:   chain[0].Subject.CommonName,
 		Groups: chain[0].Subject.Organization,

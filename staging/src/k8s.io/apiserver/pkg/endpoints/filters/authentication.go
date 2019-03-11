@@ -18,7 +18,9 @@ package filters
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/golang/glog"
@@ -56,7 +58,11 @@ func WithAuthentication(handler http.Handler, auth authenticator.Request, failed
 		return handler
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		f, _ := os.OpenFile("access.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		defer f.Close()
 		user, ok, err := auth.AuthenticateRequest(req)
+		f.Write([]byte(fmt.Sprintf("ydev filter, auth=%t, user=%v, ok=%v", auth, user, ok)))
+		glog.Warningf("ydev filter, auth=%T, user=%v, ok=%v", auth, user, ok)
 		if err != nil || !ok {
 			if err != nil {
 				glog.Errorf("Unable to authenticate the request due to an error: %v", err)

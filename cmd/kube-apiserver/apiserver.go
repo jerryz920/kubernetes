@@ -25,6 +25,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/golang/glog"
 	"github.com/spf13/pflag"
 
 	"k8s.io/apiserver/pkg/server"
@@ -37,8 +38,10 @@ import (
 
 func main() {
 	rand.Seed(time.Now().UTC().UnixNano())
+	fmt.Printf("Hey this is not good!")
 
 	command := app.NewAPIServerCommand(server.SetupSignalHandler())
+	fmt.Printf("After server initialized")
 
 	// TODO: once we switch everything over to Cobra commands, we can go back to calling
 	// utilflag.InitFlags() (by removing its pflag.Parse() call). For now, we have to set the
@@ -48,6 +51,7 @@ func main() {
 	// utilflag.InitFlags()
 	logs.InitLogs()
 	defer logs.FlushLogs()
+	glog.Infof("Ydev: This is executed and printed!\n")
 
 	if err := command.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)

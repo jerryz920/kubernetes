@@ -19,6 +19,7 @@ package union
 import (
 	"net/http"
 
+	"github.com/golang/glog"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apiserver/pkg/authentication/authenticator"
 	"k8s.io/apiserver/pkg/authentication/user"
@@ -55,6 +56,7 @@ func (authHandler *unionAuthRequestHandler) AuthenticateRequest(req *http.Reques
 	var errlist []error
 	for _, currAuthRequestHandler := range authHandler.Handlers {
 		info, ok, err := currAuthRequestHandler.AuthenticateRequest(req)
+		glog.Errorf("Ydev handler: %T, says %v,, %v", currAuthRequestHandler, info, ok)
 		if err != nil {
 			if authHandler.FailOnError {
 				return info, ok, err
