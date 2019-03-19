@@ -1,5 +1,9 @@
 
 KUBE_FASTBUILD=true build/run.sh make kube-apiserver
+if [ $? -ne 0 ]; then
+  echo "build fail!"
+  exit 1
+fi
 KUBE_FASTBUILD=true make package
 
 eval $(docker-machine env master)
