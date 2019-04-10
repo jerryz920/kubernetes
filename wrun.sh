@@ -3,5 +3,5 @@
 source ./env.sh
 
 for n in $WORKERS; do
- docker-machine ssh worker$n "$@"
+ docker-machine ssh worker-$n "$@"
 done
