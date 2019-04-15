@@ -768,7 +768,7 @@ func (m *kubeGenericRuntimeManager) SyncPod(pod *v1.Pod, _ v1.PodStatus, podStat
 // later but now we need to get the system up and running.
 
 const (
-	metadata_server = "http://192.3.0.3:19851"
+	metadata_server = "http://mds:19851"
 )
 
 var (

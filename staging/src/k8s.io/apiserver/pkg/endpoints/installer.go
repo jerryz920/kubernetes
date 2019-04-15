@@ -170,6 +170,7 @@ func (a *APIInstaller) getResourceKind(path string, storage rest.Storage) (schem
 }
 
 func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storage, ws *restful.WebService) (*metav1.APIResource, error) {
+	// Ydev: this is the place to setup all the handlers for restful APIs.
 	admit := a.group.Admit
 
 	optionsExternalVersion := a.group.GroupVersion

@@ -193,6 +193,7 @@ var CommonNameUserConversion = UserConversionFunc(func(chain []*x509.Certificate
 		return nil, false, nil
 	}
 	// Ydev: The place to hit the Puba key!
+
 	return &user.DefaultInfo{
 		Name:   chain[0].Subject.CommonName,
 		Groups: chain[0].Subject.Organization,
