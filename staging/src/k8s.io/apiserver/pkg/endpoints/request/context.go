@@ -81,6 +81,15 @@ func UserFrom(ctx context.Context) (user.Info, bool) {
 	return user, ok
 }
 
+func WithLatteCreator(parent context.Context, instanceId string) {
+	return WithValue(parent, 'latte-creator', instanceId)
+}
+
+func LatteCreatorFrom(ctx context.Context) (string, bool) {
+	creator, ok := ctx.Value('latte-creator').(string)
+	return creator, ok
+}
+
 // WithAuditEvent returns set audit event struct.
 func WithAuditEvent(parent context.Context, ev *audit.Event) context.Context {
 	return WithValue(parent, auditKey, ev)
