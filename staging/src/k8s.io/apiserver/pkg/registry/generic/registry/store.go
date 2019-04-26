@@ -326,16 +326,11 @@ func (e *Store) ListPredicate(ctx context.Context, p storage.SelectionPredicate,
 
 // Create inserts a new item according to the unique key from the object.
 func (e *Store) Create(ctx context.Context, obj runtime.Object, createValidation rest.ValidateObjectFunc, options *metav1.CreateOptions) (runtime.Object, error) {
-	glog.Infof("Ydev: before creating item: %T, %t", obj, obj.GetObjectKind().GroupVersionKind())
+	//glog.Infof("Ydev: before creating item: %T, %t", obj, obj.GetObjectKind().GroupVersionKind())
 	if err := rest.BeforeCreate(e.CreateStrategy, ctx, obj); err != nil {
 		return nil, err
 	}
 	// YNOTE Lookat here
-	if user, ok := genericapirequest.UserFrom(ctx); ok {
-		glog.Infof("Ydev-critical: user=[%v]", user)
-	} else {
-		glog.Infof("Ydev-critical-err: user not found!")
-	}
 
 	// at this point we have a fully formed object.  It is time to call the validators that the apiserver
 	// handling chain wants to enforce.

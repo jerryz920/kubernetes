@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/emicklei/go-restful"
-	"github.com/golang/glog"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -101,8 +100,6 @@ func (g *APIGroupVersion) InstallREST(container *restful.Container) error {
 		minRequestTimeout:            g.MinRequestTimeout,
 		enableAPIResponseCompression: g.EnableAPIResponseCompression,
 	}
-
-	glog.Infof("Oh fuck 6")
 
 	apiResources, ws, registrationErrors := installer.Install()
 	versionDiscoveryHandler := discovery.NewAPIVersionHandler(g.Serializer, g.GroupVersion, staticLister{apiResources})

@@ -19,6 +19,7 @@ package x509
 import (
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"time"
@@ -101,8 +102,8 @@ func (a *Authenticator) AuthenticateRequest(req *http.Request) (user.Info, bool,
 	remaining := req.TLS.PeerCertificates[0].NotAfter.Sub(time.Now())
 	clientCertificateExpirationHistogram.Observe(remaining.Seconds())
 	chains, err := req.TLS.PeerCertificates[0].Verify(optsCopy)
-	glog.Errorf("Ydev1 what is inside the cert? %T\n[ %v %v ]", req.TLS.PeerCertificates[0].PublicKey,
-		req.TLS.PeerCertificates[0].PublicKey, req.TLS.PeerCertificates[0].PublicKeyAlgorithm)
+	//glog.Errorf("Ydev1 what is inside the cert? %T\n[ %v %v ]", req.TLS.PeerCertificates[0].PublicKey,
+	//	req.TLS.PeerCertificates[0].PublicKey, req.TLS.PeerCertificates[0].PublicKeyAlgorithm)
 	if err != nil {
 		return nil, false, err
 	}
@@ -160,8 +161,8 @@ func (a *Verifier) AuthenticateRequest(req *http.Request) (user.Info, bool, erro
 		return nil, false, err
 	}
 	// Ydev: hacking with the pubkey hash
-	glog.Errorf("Ydev what is inside the cert? %T\n[ %v %v ]", req.TLS.PeerCertificates[0].PublicKey,
-		req.TLS.PeerCertificates[0].PublicKey, req.TLS.PeerCertificates[0].PublicKeyAlgorithm)
+	//glog.Errorf("Ydev what is inside the cert? %T\n[ %v %v ]", req.TLS.PeerCertificates[0].PublicKey,
+	//	req.TLS.PeerCertificates[0].PublicKey, req.TLS.PeerCertificates[0].PublicKeyAlgorithm)
 	return a.auth.AuthenticateRequest(req)
 
 }
@@ -192,10 +193,21 @@ var CommonNameUserConversion = UserConversionFunc(func(chain []*x509.Certificate
 	if len(chain[0].Subject.CommonName) == 0 {
 		return nil, false, nil
 	}
-	// Ydev: The place to hit the Puba key!
+	// Ydev: The place to hit the Pub key!
+	extra := make(map[string][]string)
+
+	keydata, err := x509.MarshalPKIXPublicKey(chain[0].PublicKey)
+	if err != nil {
+		glog.Errorf("Ydev: failed to marshal public key into PKIX format, %v", err)
+	} else {
+		keyencoded := base64.RawStdEncoding.EncodeToString(keydata)
+		//glog.Infof("Ydev: marshal public key: %v", keyencoded)
+		extra["latte.pubkey"] = []string{keyencoded}
+	}
 
 	return &user.DefaultInfo{
 		Name:   chain[0].Subject.CommonName,
 		Groups: chain[0].Subject.Organization,
+		Extra:  extra,
 	}, true, nil
 })

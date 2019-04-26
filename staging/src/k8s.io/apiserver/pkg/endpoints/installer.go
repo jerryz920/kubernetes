@@ -27,7 +27,6 @@ import (
 	"unicode"
 
 	restful "github.com/emicklei/go-restful"
-	"github.com/golang/glog"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/conversion"
@@ -108,7 +107,6 @@ func (a *APIInstaller) Install() ([]metav1.APIResource, *restful.WebService, []e
 	}
 	sort.Strings(paths)
 	for _, path := range paths {
-		glog.Errorf("Ydev Fuck yeah %v", path)
 		apiResource, err := a.registerResourceHandlers(path, a.group.Storage[path], ws)
 		if err != nil {
 			errors = append(errors, fmt.Errorf("error in registering resource: %s, %v", path, err))
@@ -219,9 +217,9 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 
 	// what verbs are supported by the storage, used to know what verbs we support per path
 	creater, isCreater := storage.(rest.Creater)
-	glog.Errorf("kind = %v, is creator=%v", kind, isCreater)
+	//glog.Errorf("kind = %v, is creator=%v", kind, isCreater)
 	namedCreater, isNamedCreater := storage.(rest.NamedCreater)
-	glog.Errorf("kind = %v, is isNamedCreator=%v", kind, isCreater)
+	//glog.Errorf("kind = %v, is isNamedCreator=%v", kind, isCreater)
 	lister, isLister := storage.(rest.Lister)
 	getter, isGetter := storage.(rest.Getter)
 	getterWithOptions, isGetterWithOptions := storage.(rest.GetterWithOptions)

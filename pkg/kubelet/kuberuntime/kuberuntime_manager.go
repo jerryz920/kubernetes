@@ -884,17 +884,15 @@ func attest(pod *v1.Pod, ip string) {
 		uid, "namespace", pod.Namespace,
 		"service_account", pod.Spec.ServiceAccountName,
 	}
-	if pubkey, ok := pod.Annotations["k8s.attest.pubkey"]; ok {
-		confPairs = append(confPairs, "user.key", pubkey)
+	if pubkey, ok := pod.Annotations["latte.pubkey"]; ok {
+		confPairs = append(confPairs, "latte.key", pubkey)
+	}
+	if name, ok := pod.Annotations["latte.user"]; ok {
+		confPairs = append(confPairs, "latte.user", name)
 	}
 
-	if username, ok := pod.Annotations["k8s.attest.username"]; ok {
-		confPairs = append(confPairs, "user.name", username)
-	}
-
-	// Assuming only one group atm. Could be more actually.
-	if usergroup, ok := pod.Annotations["k8s.attest.usergroup"]; ok {
-		confPairs = append(confPairs, "user.group", usergroup)
+	if creator, ok := pod.Annotations["latte.creator"]; ok {
+		confPairs = append(confPairs, "latte.creator", creator)
 	}
 
 	for i, container := range pod.Spec.Containers {

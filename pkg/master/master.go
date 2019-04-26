@@ -322,7 +322,6 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 	}
 
 	// install legacy rest storage
-	glog.Infof("oh fuck before")
 	if c.ExtraConfig.APIResourceConfigSource.VersionEnabled(apiv1.SchemeGroupVersion) {
 		legacyRESTStorageProvider := corerest.LegacyRESTStorageProvider{
 			StorageFactory:              c.ExtraConfig.StorageFactory,
@@ -336,10 +335,8 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 			ServiceAccountAPIAudiences:  c.ExtraConfig.ServiceAccountAPIAudiences,
 			ServiceAccountMaxExpiration: c.ExtraConfig.ServiceAccountMaxExpiration,
 		}
-		glog.Infof("oh fuck1")
 		m.InstallLegacyAPI(&c, c.GenericConfig.RESTOptionsGetter, legacyRESTStorageProvider)
 	}
-	glog.Infof("oh fuck after")
 
 	// The order here is preserved in discovery.
 	// If resources with identical names exist in more than one of these groups (e.g. "deployments.apps"" and "deployments.extensions"),
@@ -397,7 +394,6 @@ func (m *Master) InstallLegacyAPI(c *completedConfig, restOptionsGetter generic.
 	m.GenericAPIServer.AddPostStartHookOrDie(controllerName, bootstrapController.PostStartHook)
 	m.GenericAPIServer.AddPreShutdownHookOrDie(controllerName, bootstrapController.PreShutdownHook)
 
-	glog.Infof("oh fuck2")
 	if err := m.GenericAPIServer.InstallLegacyAPIGroup(genericapiserver.DefaultLegacyAPIPrefix, &apiGroupInfo); err != nil {
 		glog.Fatalf("Error in registering group versions: %v", err)
 	}

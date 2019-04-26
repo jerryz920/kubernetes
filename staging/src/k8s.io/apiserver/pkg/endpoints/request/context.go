@@ -81,12 +81,12 @@ func UserFrom(ctx context.Context) (user.Info, bool) {
 	return user, ok
 }
 
-func WithLatteCreator(parent context.Context, instanceId string) {
-	return WithValue(parent, 'latte-creator', instanceId)
+func WithLatteCreator(parent context.Context, instanceId string) context.Context {
+	return WithValue(parent, "latte-creator", instanceId)
 }
 
 func LatteCreatorFrom(ctx context.Context) (string, bool) {
-	creator, ok := ctx.Value('latte-creator').(string)
+	creator, ok := ctx.Value("latte-creator").(string)
 	return creator, ok
 }
 

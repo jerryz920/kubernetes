@@ -17,12 +17,16 @@ limitations under the License.
 package storage
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/url"
+	"time"
 
-	"k8s.io/api/core/v1"
+	"github.com/golang/glog"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
@@ -75,6 +79,35 @@ func (r *StatusREST) Update(ctx context.Context, name string, objInfo rest.Updat
 	return r.store.Update(ctx, name, objInfo, createValidation, updateValidation, false, options)
 }
 
+var (
+	safe_client *http.Client
+)
+
+func init() {
+	tr := &http.Transport{
+		MaxIdleConns:       10,
+		IdleConnTimeout:    30 * time.Second,
+		DisableCompression: true,
+	}
+
+	safe_client = &http.Client{Transport: tr}
+}
+
+func attest_node(node *api.Node) {
+	buf := bytes.NewBuffer(nil)
+	buf.WriteString(fmt.Sprintf("{\"principal\": \"\", \"otherValues\": [\"K8sGroup\", \"%s\"]}", node.UID))
+	resp, err := safe_client.Post("http://mds:19851/postMembership", "application/json", buf)
+	if err != nil {
+		glog.Errorf("can not create membership for node %v", node.UID)
+		return
+	}
+	if data, _ := ioutil.ReadAll(resp.Body); data != nil {
+		glog.Infof("Creating member: %v", string(data))
+	} else {
+		glog.Infof("Creating member fail for %v", node.UID)
+	}
+}
+
 // NewStorage returns a NodeStorage object that will work against nodes.
 func NewStorage(optsGetter generic.RESTOptionsGetter, kubeletClientConfig client.KubeletClientConfig, proxyTransport http.RoundTripper) (*NodeStorage, error) {
 	store := &genericregistry.Store{
@@ -87,7 +120,13 @@ func NewStorage(optsGetter generic.RESTOptionsGetter, kubeletClientConfig client
 		UpdateStrategy: node.Strategy,
 		DeleteStrategy: node.Strategy,
 		ExportStrategy: node.Strategy,
-
+		AfterCreate: func(obj runtime.Object) error {
+			// Ydev: pretty much a hack here
+			if node, ok := obj.(*api.Node); ok {
+				go attest_node(node)
+			}
+			return nil
+		},
 		TableConvertor: printerstorage.TableConvertor{TablePrinter: printers.NewTablePrinter().With(printersinternal.AddHandlers)},
 	}
 	options := &generic.StoreOptions{RESTOptions: optsGetter, AttrFunc: node.GetAttrs, TriggerFunc: node.NodeNameTriggerFunc}
@@ -129,9 +168,9 @@ func NewStorage(optsGetter generic.RESTOptionsGetter, kubeletClientConfig client
 	proxyREST.Connection = connectionInfoGetter
 
 	return &NodeStorage{
-		Node:   nodeREST,
-		Status: statusREST,
-		Proxy:  proxyREST,
+		Node:                  nodeREST,
+		Status:                statusREST,
+		Proxy:                 proxyREST,
 		KubeletConnectionInfo: connectionInfoGetter,
 	}, nil
 }

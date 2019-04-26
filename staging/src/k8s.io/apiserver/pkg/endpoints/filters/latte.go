@@ -4,20 +4,40 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/golang/glog"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 )
 
-func WithAuthentication(handler http.Handler) http.Handler {
+func WithLatteAuthentication(handler http.Handler) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		// send out a request to mds
-		if instanceId, err := authRemoteAdd(req.RemoteAddr); err == nil {
-			glog.Infof("Ydev: authenticated as %v", instanceId)
-			req = req.WithContext(genericapirequest.WithLatteCreator(
-				req.Context(), instanceId))
+
+		if user, ok := genericapirequest.UserFrom(req.Context()); ok {
+			name := user.GetName()
+			// only auth for service account and non-system accounts
+			auth := true
+
+			if strings.HasPrefix(name, "system:serviceaccount:kube-system") {
+				auth = false
+			} else if strings.HasPrefix(name, "system:") && !strings.HasPrefix(name, "system:serviceaccount") {
+				auth = false
+			} else if name == "kubernetes-admin" {
+				auth = false
+			}
+
+			if auth {
+				glog.Infof("Ydev who to authenticate: %v", name)
+				if instanceIds, err := authRemoteAddr(req.RemoteAddr); err == nil && strings.Trim(instanceIds, " \n") != "" {
+					pids := strings.Split(instanceIds, "\n")
+					glog.Infof("Ydev: authenticated as %v %v", pids[0], pids[1])
+					req = req.WithContext(genericapirequest.WithLatteCreator(
+						req.Context(), pids[0]))
+				}
+			}
 		}
 
 		handler.ServeHTTP(w, req)
@@ -29,7 +49,7 @@ var (
 )
 
 func init() {
-	tr := &httpTransport{
+	tr := &http.Transport{
 		MaxIdleConns:       10,
 		IdleConnTimeout:    30 * time.Second,
 		DisableCompression: true,
@@ -47,7 +67,7 @@ func authRemoteAddr(addr string) (string, error) {
 	}
 
 	if data, err := ioutil.ReadAll(resp.Body); err != nil {
-		return nil, err
+		return "", err
 	} else {
 		return string(data), nil
 	}

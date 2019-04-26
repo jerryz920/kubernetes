@@ -321,7 +321,6 @@ func (s preparedGenericAPIServer) NonBlockingRun(stopCh <-chan struct{}) error {
 // installAPIResources is a private method for installing the REST storage backing each api groupversionresource
 func (s *GenericAPIServer) installAPIResources(apiPrefix string, apiGroupInfo *APIGroupInfo) error {
 	for _, groupVersion := range apiGroupInfo.PrioritizedVersions {
-		glog.Infof("Oh fuck 4")
 		if len(apiGroupInfo.VersionedResourcesStorageMap[groupVersion.Version]) == 0 {
 			glog.Warningf("Skipping API %v because it has no resources.", groupVersion)
 			continue
@@ -332,7 +331,6 @@ func (s *GenericAPIServer) installAPIResources(apiPrefix string, apiGroupInfo *A
 			apiGroupVersion.OptionsExternalVersion = apiGroupInfo.OptionsExternalVersion
 		}
 
-		glog.Infof("Oh fuck 4-1")
 		if err := apiGroupVersion.InstallREST(s.Handler.GoRestfulContainer); err != nil {
 			return fmt.Errorf("unable to setup API %v: %v", apiGroupInfo, err)
 		}
@@ -345,7 +343,6 @@ func (s *GenericAPIServer) InstallLegacyAPIGroup(apiPrefix string, apiGroupInfo 
 	if !s.legacyAPIGroupPrefixes.Has(apiPrefix) {
 		return fmt.Errorf("%q is not in the allowed legacy API prefixes: %v", apiPrefix, s.legacyAPIGroupPrefixes.List())
 	}
-	glog.Infof("Oh fuck 3")
 	if err := s.installAPIResources(apiPrefix, apiGroupInfo); err != nil {
 		return err
 	}

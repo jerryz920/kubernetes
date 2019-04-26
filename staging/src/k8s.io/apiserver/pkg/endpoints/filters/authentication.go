@@ -57,7 +57,7 @@ func WithAuthentication(handler http.Handler, auth authenticator.Request, failed
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		user, ok, err := auth.AuthenticateRequest(req)
-		glog.Warningf("ydev filter, auth=%T, user=%v, ok=%v", auth, user, ok)
+		//glog.Warningf("ydev filter, auth=%T, user=%v, ok=%v", auth, user, ok)
 		if err != nil || !ok {
 			if err != nil {
 				glog.Errorf("Unable to authenticate the request due to an error: %v", err)
