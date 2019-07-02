@@ -22,6 +22,12 @@ rules:
   resources: ["deployments"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  namespace: latte-USERNAME
+  name: latte-admin.USERNAME
+---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -30,6 +36,9 @@ subjects:
 - kind: Group
   name: users # Name is case sensitive
   apiGroup: rbac.authorization.k8s.io
+- kind: ServiceAccount
+  name: latte-admin.USERNAME
+  namespace: latte-USERNAME
 roleRef:
   kind: ClusterRole #this must be Role or ClusterRole
   name: listpods-USERNAME # this must match the name of the Role or ClusterRole you wish to bind to
@@ -44,6 +53,9 @@ subjects:
 - kind: User
   name: USERNAME # Name is case sensitive
   apiGroup: rbac.authorization.k8s.io
+- kind: ServiceAccount
+  name: latte-admin.USERNAME
+  namespace: latte-USERNAME
 roleRef:
   kind: Role #this must be Role or ClusterRole
   name: namespace_admin_USERNAME
