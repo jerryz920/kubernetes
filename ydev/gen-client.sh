@@ -27,14 +27,13 @@ gen_key() {
 openssl ecparam -name prime256v1 -out $1_param.pem 
 openssl ecparam -name prime256v1 -in $1_param.pem -genkey -noout -out $1_ec.key
 # convert the EC key to PKCS key
-openssl pkcs8 -topk8 -nocrypt -in $1_ec.key -outform PEM -out tmp-$1.key
-openssl ec -in tmp-$1.key -outform DER -out $1.key
+openssl pkcs8 -topk8 -nocrypt -in $1_ec.key -outform PEM -out $1.key
 rm -f $1_param.pem $1_ec.key tmp-$1.key
 }
 
 # TODO: configs may be merged into a common CA config file, so the shell cmd could look elegant.
 gen_cert() {
-openssl req -new -keyform DER -key $1.key -out $1.csr -subj "/O=users/CN=$1" #-config $SCRIPT_DIR/openssl.cnf 
+openssl req -new -key $1.key -out $1.csr -subj "/O=users/CN=$1" #-config $SCRIPT_DIR/openssl.cnf 
 openssl x509 -req -days 1000 -in $1.csr -CA $2.crt -CAkey $2.key -set_serial 0101 -out $1.crt -sha256 -extensions 'v3_req' #-extfile $SCRIPT_DIR/openssl.cnf 
 }
 
