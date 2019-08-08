@@ -125,7 +125,7 @@ type latteConfigPair struct {
 	val string
 }
 
-type latteConfigs = []latteConfigPair
+type latteConfigs []latteConfigPair
 
 // Generate configurations from string
 func (configs latteConfigs) Len() int {
@@ -170,19 +170,19 @@ func (m *kubeGenericRuntimeManager) attestContainer(principal string, pod *v1.Po
 		workdir = "/"
 	}
 	configPairs = append(configPairs,
-		latteConfigPair{key: "pwd", value: workdir},
-		latteConfigPair{key: "tty", value: strconv.FormatBool(container.TTY)},
-		latteConfigPair{key: "stdin", value: strconv.FormatBool(container.Stdin)})
+		latteConfigPair{key: "pwd", val: workdir},
+		latteConfigPair{key: "tty", val: strconv.FormatBool(container.TTY)},
+		latteConfigPair{key: "stdin", val: strconv.FormatBool(container.Stdin)})
 
-	for i, port := range container.Ports {
+	for _, port := range container.Ports {
 		configPairs = append(configPairs, latteConfigPair{
-			key:   fmt.Sprintf("%s-port-%d", strings.ToLower(string(port.Protocol)), string(port.ContainerPort)),
-			value: string(port.HostPort)})
+			key: fmt.Sprintf("%s-port-%d", strings.ToLower(string(port.Protocol)), string(port.ContainerPort)),
+			val: string(port.HostPort)})
 	}
 	for _, env := range container.Env {
 		configPairs = append(configPairs, latteConfigPair{
-			key:   fmt.Sprintf("%s", env.Name),
-			value: env.Value})
+			key: fmt.Sprintf("%s", env.Name),
+			val: env.Value})
 	}
 	// parse container.Args, container.Command
 	// parse EnvFrom
@@ -193,7 +193,8 @@ func (m *kubeGenericRuntimeManager) attestContainer(principal string, pod *v1.Po
 }
 
 func (m *kubeGenericRuntimeManager) attest(pod *v1.Pod, podIP string) {
-	glog.Infof("attesting pod %s on %s", pod.Name, ip)
+	glog.Infof("attesting pod %s on %s", pod.Name, podIP)
+	return
 
 	pod_bytes, err := encode(pod)
 	if err != nil {
@@ -210,7 +211,7 @@ func (m *kubeGenericRuntimeManager) attest(pod *v1.Pod, podIP string) {
 	hash := sha256.Sum256(pod_bytes.Bytes())
 	imageRef := base64.RawStdEncoding.EncodeToString(hash[:])
 	principal := fmt.Sprintf("%s:6431", myip.String())
-	safeAPI("postInstance", principal, uid, imageRef, fmt.Sprintf("%s:1-65535", ip))
+	safeAPI("postInstance", principal, uid, imageRef, fmt.Sprintf("%s:1-65535", podIP))
 
 	allConfigMaps := make(map[string]*v1.ConfigMap)
 	configMapVolumes := make(map[string]*v1.ConfigMap)
@@ -224,34 +225,34 @@ func (m *kubeGenericRuntimeManager) attest(pod *v1.Pod, podIP string) {
 					continue
 				}
 				allConfigMaps[v.VolumeSource.ConfigMap.Name] = configMap
+				configMapVolumes[v.Name] = configMap
 			}
-			confgMapVolumes[v.Name] = configMap
 		}
 	}
 
 	configPairs := latteConfigs{
-		latteConfigPair{key: "namespace", value: pod.Namespace},
-		latteConfigPair{key: "service_account", value: pod.Spec.ServiceAccountName},
+		latteConfigPair{key: "namespace", val: pod.Namespace},
+		latteConfigPair{key: "service_account", val: pod.Spec.ServiceAccountName},
 	}
 	if pubkey, ok := pod.Annotations["latte.pubkey"]; ok {
-		configPairs = append(configPairs, latteConfigPair{key: "latte.key", value: pubkey})
+		configPairs = append(configPairs, latteConfigPair{key: "latte.key", val: pubkey})
 	}
 	if name, ok := pod.Annotations["latte.user"]; ok {
-		configPairs = append(configPairs, latteConfigPair{key: "latte.user", value: name})
+		configPairs = append(configPairs, latteConfigPair{key: "latte.user", val: name})
 	}
 
 	if creator, ok := pod.Annotations["latte.creator"]; ok {
-		configPairs = append(configPairs, latteConfigPair{key: "latte.creator", value: creator})
+		configPairs = append(configPairs, latteConfigPair{key: "latte.creator", val: creator})
 	}
 	podConfigString := configPairs.String()
-	safeAPI("postInstanceConfig", principal, uid, "configlist", podConfigString)
+	safeAPI("postInstanceConfig", principal, uid, "global-config", podConfigString)
 
 	for _, container := range pod.Spec.Containers {
-		m.attestContainer(principal, pod, container, false, allConfigMaps, volToConfigMaps)
+		m.attestContainer(principal, pod, &container, false, allConfigMaps, configMapVolumes)
 	}
 
 	for _, container := range pod.Spec.InitContainers {
 		// fixme: image should not be a name. Should be its sha256 hash. Need to query docker.
-		m.attestContainer(principal, pod, container, true, allConfigMaps, volToConfigMaps)
+		m.attestContainer(principal, pod, &container, true, allConfigMaps, configMapVolumes)
 	}
 }
