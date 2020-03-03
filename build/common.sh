@@ -447,7 +447,7 @@ function kube::build::build_image() {
   # Make sure the context directory owned by the right user for syncing sources to container.
   chown -R ${USER_ID}:${GROUP_ID} "${LOCAL_OUTPUT_BUILD_CONTEXT}"
 
-  cp /etc/localtime "${LOCAL_OUTPUT_BUILD_CONTEXT}/"
+  cp -f /etc/localtime "${LOCAL_OUTPUT_BUILD_CONTEXT}/"
 
   cp "${KUBE_ROOT}/build/build-image/Dockerfile" "${LOCAL_OUTPUT_BUILD_CONTEXT}/Dockerfile"
   cp "${KUBE_ROOT}/build/build-image/rsyncd.sh" "${LOCAL_OUTPUT_BUILD_CONTEXT}/"
