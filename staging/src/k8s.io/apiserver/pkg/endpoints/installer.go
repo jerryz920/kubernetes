@@ -41,6 +41,7 @@ import (
 	"k8s.io/apiserver/pkg/features"
 	"k8s.io/apiserver/pkg/registry/rest"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	"k8s.io/klog"
 )
 
 const (
@@ -230,7 +231,7 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 
 	// what verbs are supported by the storage, used to know what verbs we support per path
 	creater, isCreater := storage.(rest.Creater)
-	//glog.Errorf("kind = %v, is creator=%v", kind, isCreater)
+	klog.Errorf("kind = %v, is creator=%v", kind, isCreater)
 	namedCreater, isNamedCreater := storage.(rest.NamedCreater)
 	//glog.Errorf("kind = %v, is isNamedCreator=%v", kind, isCreater)
 	lister, isLister := storage.(rest.Lister)

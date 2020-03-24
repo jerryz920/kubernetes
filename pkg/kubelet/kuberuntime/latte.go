@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -45,33 +44,8 @@ func init() {
 func (m *kubeGenericRuntimeManager) helper(pod *v1.Pod) {
 }
 
-func getMyIP() (net.IP, error) {
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return nil, err
-	}
-	// handle err
-	for _, i := range ifaces {
-		addrs, err := i.Addrs()
-		if err != nil {
-			return nil, err
-		}
-		// handle err
-		for _, addr := range addrs {
-			var ip net.IP
-			switch v := addr.(type) {
-			case *net.IPNet:
-				ip = v.IP
-			case *net.IPAddr:
-				ip = v.IP
-			}
-			if strings.HasPrefix(ip.String(), "192.1.") {
-				return ip, nil
-			}
-			// process IP address
-		}
-	}
-	return nil, errors.New("System IP not found")
+func getMyIP() net.IP {
+	return net.ParseIP("192.168.0.1")
 }
 
 type SafeRequest struct {
@@ -95,6 +69,10 @@ func encodeSafeRequest(principal string, otherValues ...string) (io.Reader, erro
 		OtherValues: otherValues,
 	}
 	return encode(&v)
+}
+
+func formatSafeList(vals []string) string {
+	return fmt.Sprintf("[\"%s\"]", strings.Join(vals, ","))
 }
 
 func safeAPI(method string, principal string, otherValues ...string) {
@@ -143,11 +121,14 @@ func (configs latteConfigs) Swap(i, j int) {
 func (configs latteConfigs) String() string {
 	sort.Sort(&configs)
 	// generate list?
-	return ""
+	kvs := make([]string, 0, len(configs))
+	for _, c := range configs {
+		kvs = append(kvs, fmt.Sprintf("[\"%s\",\"%s\"]", c.key, c.val))
+	}
+	return fmt.Sprintf("%s", strings.Join(kvs, ","))
 }
 
-func (m *kubeGenericRuntimeManager) attestContainer(principal string, pod *v1.Pod, container *v1.Container, init bool,
-	configMaps, volToConfigMaps map[string]*v1.ConfigMap) {
+func getSafeContainerName(pod *v1.Pod, container *v1.Container, init bool) string {
 	uid := string(pod.UID)
 	var typeName string
 	if init {
@@ -155,10 +136,11 @@ func (m *kubeGenericRuntimeManager) attestContainer(principal string, pod *v1.Po
 	} else {
 		typeName = "default"
 	}
-	ctnName := fmt.Sprintf("%s/%s/%s", uid, typeName, container.Name)
-	safeAPI("postInstanceConfig", principal, uid, "container", ctnName)
-	// fixme: image should not be a name. Should be its sha256 hash. Need to query docker.
-	safeAPI("endorse", principal, ctnName, "image", container.Image)
+	return fmt.Sprintf("%s/%s/%s", uid, typeName, container.Name)
+}
+
+func (m *kubeGenericRuntimeManager) attestContainer(principal string, uid string, ctnName string, container *v1.Container,
+	configMaps, volToConfigMaps map[string]*v1.ConfigMap) {
 
 	// generate Container specific configurations
 	// each container has an Image and a property list. The property list needs special resolve if it
@@ -176,7 +158,7 @@ func (m *kubeGenericRuntimeManager) attestContainer(principal string, pod *v1.Po
 
 	for _, port := range container.Ports {
 		configPairs = append(configPairs, latteConfigPair{
-			key: fmt.Sprintf("%s-port-%d", strings.ToLower(string(port.Protocol)), string(port.ContainerPort)),
+			key: fmt.Sprintf("%s-port-%d-mapping", strings.ToLower(string(port.Protocol)), port.ContainerPort),
 			val: string(port.HostPort)})
 	}
 	for _, env := range container.Env {
@@ -184,28 +166,31 @@ func (m *kubeGenericRuntimeManager) attestContainer(principal string, pod *v1.Po
 			key: fmt.Sprintf("%s", env.Name),
 			val: env.Value})
 	}
-	// parse container.Args, container.Command
+	for i, arg := range container.Command {
+		configPairs = append(configPairs, latteConfigPair{
+			key: fmt.Sprintf("arg%d", i),
+			val: arg})
+	}
+	for i, arg := range container.Args {
+		configPairs = append(configPairs, latteConfigPair{
+			key: fmt.Sprintf("arg%d", i+len(container.Command)),
+			val: arg})
+	}
 	// parse EnvFrom
 	// parse ConfigMapVolumeSource
 	ctnConfigString := configPairs.String()
-	safeAPI("endorse", principal, ctnName, "configlist", ctnConfigString)
-
+	safeAPI("postInstanceConfig", principal, uid, ctnName, fmt.Sprintf("[%s, %s]", container.Image, ctnConfigString))
 }
 
 func (m *kubeGenericRuntimeManager) attest(pod *v1.Pod, podIP string) {
 	klog.Infof("attesting pod %s on %s", pod.Name, podIP)
-	return
 
 	pod_bytes, err := encode(pod)
 	if err != nil {
 		klog.Errorf("Can not encode pod object: {}", err)
 		return
 	}
-	myip, err := getMyIP()
-	if err != nil {
-		klog.Errorf("Can not get system IP")
-		return
-	}
+	myip := getMyIP()
 
 	uid := string(pod.UID)
 	hash := sha256.Sum256(pod_bytes.Bytes())
@@ -245,14 +230,21 @@ func (m *kubeGenericRuntimeManager) attest(pod *v1.Pod, podIP string) {
 		configPairs = append(configPairs, latteConfigPair{key: "latte.creator", val: creator})
 	}
 	podConfigString := configPairs.String()
-	safeAPI("postInstanceConfig", principal, uid, "global-config", podConfigString)
+	safeAPI("postInstanceConfig", principal, uid, "global", fmt.Sprintf("[%s]", podConfigString))
 
+	containerNames := make([]string, 0)
 	for _, container := range pod.Spec.Containers {
-		m.attestContainer(principal, pod, &container, false, allConfigMaps, configMapVolumes)
+		ctnName := getSafeContainerName(pod, &container, false)
+		m.attestContainer(principal, uid, ctnName, &container, allConfigMaps, configMapVolumes)
+		containerNames = append(containerNames, ctnName)
 	}
 
 	for _, container := range pod.Spec.InitContainers {
 		// fixme: image should not be a name. Should be its sha256 hash. Need to query docker.
-		m.attestContainer(principal, pod, &container, true, allConfigMaps, configMapVolumes)
+		ctnName := getSafeContainerName(pod, &container, true)
+		m.attestContainer(principal, uid, ctnName, &container, allConfigMaps, configMapVolumes)
+		containerNames = append(containerNames, ctnName)
 	}
+	safeAPI("postInstanceConfig", principal, uid, "containers",
+		fmt.Sprintf("[%s]", strings.Join(containerNames, ",")))
 }
