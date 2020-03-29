@@ -6,15 +6,18 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
+	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 	"k8s.io/klog"
 
 	v1 "k8s.io/api/core/v1"
@@ -28,7 +31,9 @@ const (
 )
 
 var (
-	safe_client *http.Client
+	safe_client         *http.Client
+	logDir                    = filepath.Join(os.TempDir(), "latte-k8s")
+	debugLogSuffixIndex int64 = 0 // only for debug usage
 )
 
 func init() {
@@ -39,9 +44,10 @@ func init() {
 	}
 
 	safe_client = &http.Client{Transport: tr}
-}
+	if err := os.MkdirAll(logDir, 0700); err != nil {
+		klog.Errorf("Failed to create the latte debug log directory: %v", err)
+	}
 
-func (m *kubeGenericRuntimeManager) helper(pod *v1.Pod) {
 }
 
 func getMyIP() net.IP {
@@ -63,12 +69,27 @@ func encode(v interface{}) (*bytes.Buffer, error) {
 	return buf, nil
 }
 
-func encodeSafeRequest(principal string, otherValues ...string) (io.Reader, error) {
+func encodeSafeRequest(principal string, otherValues ...string) (*bytes.Buffer, error) {
 	v := SafeRequest{
 		Principal:   principal,
 		OtherValues: otherValues,
 	}
 	return encode(&v)
+}
+
+func dumpSafeRequestAsCurl(url string, buf *bytes.Buffer) {
+	suffix := atomic.AddInt64(&debugLogSuffixIndex, 1)
+	scriptFile := filepath.Join(fmt.Sprintf("req.%d.sh", suffix))
+	dataFile := filepath.Join(logDir, fmt.Sprintf("req.%d.json", suffix))
+	scriptContent := fmt.Sprintf("curl -XPOST \"%s\" --data-binary \"@%s\"", url, dataFile)
+	// Try our best
+	if err := ioutil.WriteFile(scriptFile, []byte(scriptContent), 0700); err != nil {
+		klog.Error("Failed to write out latte script data: ", err)
+	}
+
+	if err := ioutil.WriteFile(dataFile, buf.Bytes(), 0700); err != nil {
+		klog.Error("Failed to write out latte json data: ", err)
+	}
 }
 
 func formatSafeList(vals []string) string {
@@ -82,6 +103,8 @@ func safeAPI(method string, principal string, otherValues ...string) {
 		klog.Errorf("Encoding safe request %v, %v, %v", principal, otherValues, err)
 		return
 	}
+
+	dumpSafeRequestAsCurl(url, reqbuf)
 
 	resp, err := safe_client.Post(url, "application/json", reqbuf)
 	if err != nil {
@@ -139,49 +162,6 @@ func getSafeContainerName(pod *v1.Pod, container *v1.Container, init bool) strin
 	return fmt.Sprintf("%s/%s/%s", uid, typeName, container.Name)
 }
 
-func (m *kubeGenericRuntimeManager) attestContainer(principal string, uid string, ctnName string, container *v1.Container,
-	configMaps, volToConfigMaps map[string]*v1.ConfigMap) {
-
-	// generate Container specific configurations
-	// each container has an Image and a property list. The property list needs special resolve if it
-	// starts with "-", or if it can be resolved to be valid yaml, json, or property list.
-	configPairs := make(latteConfigs, 0, 64)
-
-	workdir := container.WorkingDir
-	if workdir == "" {
-		workdir = "/"
-	}
-	configPairs = append(configPairs,
-		latteConfigPair{key: "pwd", val: workdir},
-		latteConfigPair{key: "tty", val: strconv.FormatBool(container.TTY)},
-		latteConfigPair{key: "stdin", val: strconv.FormatBool(container.Stdin)})
-
-	for _, port := range container.Ports {
-		configPairs = append(configPairs, latteConfigPair{
-			key: fmt.Sprintf("%s-port-%d-mapping", strings.ToLower(string(port.Protocol)), port.ContainerPort),
-			val: string(port.HostPort)})
-	}
-	for _, env := range container.Env {
-		configPairs = append(configPairs, latteConfigPair{
-			key: fmt.Sprintf("%s", env.Name),
-			val: env.Value})
-	}
-	for i, arg := range container.Command {
-		configPairs = append(configPairs, latteConfigPair{
-			key: fmt.Sprintf("arg%d", i),
-			val: arg})
-	}
-	for i, arg := range container.Args {
-		configPairs = append(configPairs, latteConfigPair{
-			key: fmt.Sprintf("arg%d", i+len(container.Command)),
-			val: arg})
-	}
-	// parse EnvFrom
-	// parse ConfigMapVolumeSource
-	ctnConfigString := configPairs.String()
-	safeAPI("postInstanceConfig", principal, uid, ctnName, fmt.Sprintf("[%s, %s]", container.Image, ctnConfigString))
-}
-
 func (m *kubeGenericRuntimeManager) attest(pod *v1.Pod, podIP string) {
 	klog.Infof("attesting pod %s on %s", pod.Name, podIP)
 
@@ -197,23 +177,6 @@ func (m *kubeGenericRuntimeManager) attest(pod *v1.Pod, podIP string) {
 	imageRef := base64.RawStdEncoding.EncodeToString(hash[:])
 	principal := fmt.Sprintf("%s:6431", myip.String())
 	safeAPI("postInstance", principal, uid, imageRef, fmt.Sprintf("%s:1-65535", podIP))
-
-	allConfigMaps := make(map[string]*v1.ConfigMap)
-	configMapVolumes := make(map[string]*v1.ConfigMap)
-	for _, v := range pod.Spec.Volumes {
-		if v.VolumeSource.ConfigMap != nil {
-			klog.Info("Processing ConfigMap ", v.Name)
-			if _, ok := allConfigMaps[v.VolumeSource.ConfigMap.Name]; !ok {
-				configMap, err := m.runtimeHelper.GetConfigMap(pod.Namespace, v.VolumeSource.ConfigMap.Name)
-				if err != nil {
-					klog.Infof("Ydev: err getting configmap %s, %s: %s", pod.Namespace, v.VolumeSource.ConfigMap.Name, err)
-					continue
-				}
-				allConfigMaps[v.VolumeSource.ConfigMap.Name] = configMap
-				configMapVolumes[v.Name] = configMap
-			}
-		}
-	}
 
 	configPairs := latteConfigs{
 		latteConfigPair{key: "namespace", val: pod.Namespace},
@@ -234,17 +197,74 @@ func (m *kubeGenericRuntimeManager) attest(pod *v1.Pod, podIP string) {
 
 	containerNames := make([]string, 0)
 	for _, container := range pod.Spec.Containers {
-		ctnName := getSafeContainerName(pod, &container, false)
-		m.attestContainer(principal, uid, ctnName, &container, allConfigMaps, configMapVolumes)
-		containerNames = append(containerNames, ctnName)
+		containerNames = append(containerNames, getSafeContainerName(pod, &container, false))
 	}
 
 	for _, container := range pod.Spec.InitContainers {
-		// fixme: image should not be a name. Should be its sha256 hash. Need to query docker.
-		ctnName := getSafeContainerName(pod, &container, true)
-		m.attestContainer(principal, uid, ctnName, &container, allConfigMaps, configMapVolumes)
-		containerNames = append(containerNames, ctnName)
+		//		m.attestContainer(principal, uid, ctnName, &container, allConfigMaps, configMapVolumes)
+		containerNames = append(containerNames, getSafeContainerName(pod, &container, true))
 	}
 	safeAPI("postInstanceConfig", principal, uid, "containers",
 		fmt.Sprintf("[%s]", strings.Join(containerNames, ",")))
+}
+
+func (m *kubeGenericRuntimeManager) attestContainer(pod *v1.Pod, container *v1.Container, opts *runtimeapi.ContainerConfig) {
+
+	myip := getMyIP()
+	uid := string(pod.UID)
+	principal := fmt.Sprintf("%s:6431", myip.String())
+	// generate Container specific configurations
+	// each container has an Image and a property list. The property list needs special resolve if it
+	// starts with "-", or if it can be resolved to be valid yaml, json, or property list.
+	configPairs := make(latteConfigs, 0, 64)
+	ctnName := getSafeContainerName(pod, container, true)
+
+	workdir := opts.WorkingDir
+	if workdir == "" {
+		workdir = "/"
+	}
+	configPairs = append(configPairs,
+		latteConfigPair{key: "pwd", val: workdir},
+		latteConfigPair{key: "tty", val: strconv.FormatBool(container.TTY)},
+		latteConfigPair{key: "stdin", val: strconv.FormatBool(container.Stdin)})
+
+	// opts.Mounts
+	// opts.Devices
+	// opts.Labels
+	// opts.Annotations
+
+	for _, port := range container.Ports {
+		configPairs = append(configPairs, latteConfigPair{
+			key: fmt.Sprintf("%s-port-%d-mapping", strings.ToLower(string(port.Protocol)), port.ContainerPort),
+			val: string(port.HostPort)})
+	}
+	for _, env := range opts.Envs {
+		configPairs = append(configPairs, latteConfigPair{
+			key: fmt.Sprintf("%s", env.Key),
+			val: env.Value})
+	}
+	for i, arg := range opts.Command {
+		configPairs = append(configPairs, latteConfigPair{
+			key: fmt.Sprintf("arg%d", i),
+			val: arg})
+	}
+	for i, arg := range opts.Args {
+		configPairs = append(configPairs, latteConfigPair{
+			key: fmt.Sprintf("arg%d", i+len(container.Command)),
+			val: arg})
+	}
+	// parse EnvFrom
+	// parse ConfigMapVolumeSource
+	ctnConfigString := configPairs.String()
+	safeAPI("postInstanceConfig", principal, uid, ctnName, fmt.Sprintf("[%s, %s]", container.Image, ctnConfigString))
+
+}
+
+func (m *kubeGenericRuntimeManager) isInitContainer(pod *v1.Pod, container *v1.Container) bool {
+	for _, c := range pod.Spec.InitContainers {
+		if c.Name == container.Name {
+			return true
+		}
+	}
+	return false
 }

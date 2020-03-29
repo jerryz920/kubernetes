@@ -124,6 +124,10 @@ func (m *kubeGenericRuntimeManager) startContainer(podSandboxID string, podSandb
 		m.recordContainerEvent(pod, container, "", v1.EventTypeWarning, events.FailedToCreateContainer, "Error: %v", s.Message())
 		return s.Message(), ErrCreateContainerConfig
 	}
+	// Ydev: the place to attest actual container configuration: so that we don't need to parse the ENV/Cmd/Args by ourselves!
+	// Still need to process the command line options to get correct key/value config list for attestation purpose.
+	// Note: at this time, the container is only created but not started, so we don't have a race condition.
+	m.attestContainer(pod, container, containerConfig)
 
 	containerID, err := m.runtimeService.CreateContainer(podSandboxID, containerConfig, podSandboxConfig)
 	if err != nil {
