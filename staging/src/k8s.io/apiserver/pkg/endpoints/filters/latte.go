@@ -30,12 +30,12 @@ func WithLatteAuthentication(handler http.Handler) http.Handler {
 			}
 
 			if auth {
-				klog.Infof("Ydev who to authenticate: %v", name)
+				klog.Infof("Ydev who to authenticate: %v, %s", name, req.RemoteAddr)
 				if instanceIds, err := authRemoteAddr(req.RemoteAddr); err == nil && strings.Trim(instanceIds, " \n") != "" {
-					pids := strings.Split(instanceIds, "\n")
-					klog.Infof("Ydev: authenticated as %v %v", pids[0], pids[1])
+					podInfo := strings.Split(instanceIds, "\n")
+					klog.Infof("Ydev: authenticated as %v %v", podInfo[0], podInfo[1])
 					req = req.WithContext(genericapirequest.WithLatteCreator(
-						req.Context(), pids[0]))
+						req.Context(), podInfo[0]))
 				}
 			}
 		}
@@ -59,7 +59,7 @@ func init() {
 }
 
 func authRemoteAddr(addr string) (string, error) {
-	resp, err := mds_client.Get(fmt.Sprintf("http://mds:19851/authenticate/%s", addr))
+	resp, err := mds_client.Get(fmt.Sprintf("http://mds:19851/authPod/%s", addr))
 
 	if err != nil {
 		klog.Infof("Ydev: failed to authenticate remote address %v", err)

@@ -121,6 +121,41 @@ func safeAPI(method string, principal string, otherValues ...string) {
 	klog.Infof("Ydev safe request: %v, %v, [%v], resp: %v", method, principal, otherValues, string(data))
 }
 
+type PodRequest struct {
+	Uuid string
+	Addr string
+	Tag  string `json="omitempty"`
+}
+
+func podAPI(method string, preq *PodRequest) {
+	url := fmt.Sprintf("%s/%s", metadata_server, method)
+	reqbuf, err := encode(preq)
+	if err != nil {
+		if preq != nil {
+			klog.Errorf("Encoding pod req to metadata server %v", *preq)
+		} else {
+			klog.Errorf("Encoding null pod req to metadta server")
+		}
+		return
+	}
+
+	resp, err := safe_client.Post(url, "application/json", reqbuf)
+	if err != nil {
+		klog.Errorf("Sending pod request: %v, [%v], %v", method, *preq, err)
+		return
+	}
+
+	if resp.Body != nil {
+		ioutil.ReadAll(resp.Body)
+		resp.Body.Close()
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		klog.Errorf("Failed to post POD to metadata API, status: %d", resp.StatusCode)
+	}
+	klog.Infof("Ydev successful pod request: %v", *preq)
+}
+
 type latteConfigPair struct {
 	key string
 	val string
@@ -178,6 +213,11 @@ func (m *kubeGenericRuntimeManager) attest(pod *v1.Pod, podIP string) {
 	principal := fmt.Sprintf("%s:6431", myip.String())
 	safeAPI("postInstance", principal, uid, imageRef, fmt.Sprintf("%s:1-65535", podIP))
 
+	preq := PodRequest{
+		Uuid: uid,
+		Addr: podIP,
+	}
+
 	configPairs := latteConfigs{
 		latteConfigPair{key: "namespace", val: pod.Namespace},
 		latteConfigPair{key: "service_account", val: pod.Spec.ServiceAccountName},
@@ -192,8 +232,15 @@ func (m *kubeGenericRuntimeManager) attest(pod *v1.Pod, podIP string) {
 	if creator, ok := pod.Annotations["latte.creator"]; ok {
 		configPairs = append(configPairs, latteConfigPair{key: "latte.creator", val: creator})
 	}
+
+	if outputTag, ok := pod.Annotations["latte.outputTag"]; ok {
+		configPairs = append(configPairs, latteConfigPair{key: "latte.outputTag", val: outputTag})
+		preq.Tag = outputTag
+	}
+
 	podConfigString := configPairs.String()
 	safeAPI("postInstanceConfig", principal, uid, "global", fmt.Sprintf("[%s]", podConfigString))
+	podAPI("postPod", &preq)
 
 	containerNames := make([]string, 0)
 	for _, container := range pod.Spec.Containers {
