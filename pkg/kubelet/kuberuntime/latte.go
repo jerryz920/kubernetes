@@ -14,7 +14,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
@@ -31,9 +30,8 @@ const (
 )
 
 var (
-	safe_client         *http.Client
-	logDir                    = filepath.Join(os.TempDir(), "latte-k8s")
-	debugLogSuffixIndex int64 = 0 // only for debug usage
+	safe_client *http.Client
+	logDir      = filepath.Join(os.TempDir(), "latte-k8s")
 )
 
 func init() {
@@ -77,10 +75,9 @@ func encodeSafeRequest(principal string, otherValues ...string) (*bytes.Buffer, 
 	return encode(&v)
 }
 
-func dumpSafeRequestAsCurl(url string, buf *bytes.Buffer) {
-	suffix := atomic.AddInt64(&debugLogSuffixIndex, 1)
-	scriptFile := filepath.Join(fmt.Sprintf("req.%d.sh", suffix))
-	dataFile := filepath.Join(logDir, fmt.Sprintf("req.%d.json", suffix))
+func dumpSafeRequestAsCurl(uuid string, url string, buf *bytes.Buffer) {
+	scriptFile := filepath.Join(logDir, fmt.Sprintf("req.%s.sh", uuid))
+	dataFile := filepath.Join(logDir, fmt.Sprintf("req.%s.json", uuid))
 	scriptContent := fmt.Sprintf("curl -XPOST \"%s\" --data-binary \"@%s\"", url, dataFile)
 	// Try our best
 	if err := ioutil.WriteFile(scriptFile, []byte(scriptContent), 0700); err != nil {
@@ -96,7 +93,7 @@ func formatSafeList(vals []string) string {
 	return fmt.Sprintf("[\"%s\"]", strings.Join(vals, ","))
 }
 
-func safeAPI(method string, principal string, otherValues ...string) {
+func safeAPI(uuid string, method string, principal string, otherValues ...string) {
 	url := fmt.Sprintf("%s/%s", metadata_server, method)
 	reqbuf, err := encodeSafeRequest(principal, otherValues...)
 	if err != nil {
@@ -104,7 +101,7 @@ func safeAPI(method string, principal string, otherValues ...string) {
 		return
 	}
 
-	dumpSafeRequestAsCurl(url, reqbuf)
+	dumpSafeRequestAsCurl(uuid, url, reqbuf)
 
 	resp, err := safe_client.Post(url, "application/json", reqbuf)
 	if err != nil {
@@ -194,7 +191,7 @@ func getSafeContainerName(pod *v1.Pod, container *v1.Container, init bool) strin
 	} else {
 		typeName = "default"
 	}
-	return fmt.Sprintf("%s/%s/%s", uid, typeName, container.Name)
+	return fmt.Sprintf("%s__%s__%s", uid, typeName, container.Name)
 }
 
 func (m *kubeGenericRuntimeManager) attest(pod *v1.Pod, podIP string) {
@@ -211,7 +208,7 @@ func (m *kubeGenericRuntimeManager) attest(pod *v1.Pod, podIP string) {
 	hash := sha256.Sum256(pod_bytes.Bytes())
 	imageRef := base64.RawStdEncoding.EncodeToString(hash[:])
 	principal := fmt.Sprintf("%s:6431", myip.String())
-	safeAPI("postInstance", principal, uid, imageRef, fmt.Sprintf("%s:1-65535", podIP))
+	safeAPI(fmt.Sprintf("%s_pod", uid), "postInstance", principal, uid, imageRef, fmt.Sprintf("%s:1-65535", podIP))
 
 	preq := PodRequest{
 		Uuid: uid,
@@ -239,7 +236,7 @@ func (m *kubeGenericRuntimeManager) attest(pod *v1.Pod, podIP string) {
 	}
 
 	podConfigString := configPairs.String()
-	safeAPI("postInstanceConfig", principal, uid, "global", fmt.Sprintf("[%s]", podConfigString))
+	safeAPI(fmt.Sprintf("%s_global", uid), "postInstanceConfig", principal, uid, "global", fmt.Sprintf("[%s]", podConfigString))
 	podAPI("postPod", &preq)
 
 	containerNames := make([]string, 0)
@@ -251,7 +248,7 @@ func (m *kubeGenericRuntimeManager) attest(pod *v1.Pod, podIP string) {
 		//		m.attestContainer(principal, uid, ctnName, &container, allConfigMaps, configMapVolumes)
 		containerNames = append(containerNames, getSafeContainerName(pod, &container, true))
 	}
-	safeAPI("postInstanceConfig", principal, uid, "containers",
+	safeAPI(fmt.Sprintf("%s_containers", uid), "postInstanceConfig", principal, uid, "containers",
 		fmt.Sprintf("[%s]", strings.Join(containerNames, ",")))
 }
 
@@ -303,7 +300,7 @@ func (m *kubeGenericRuntimeManager) attestContainer(pod *v1.Pod, container *v1.C
 	// parse EnvFrom
 	// parse ConfigMapVolumeSource
 	ctnConfigString := configPairs.String()
-	safeAPI("postInstanceConfig", principal, uid, ctnName, fmt.Sprintf("[%s, %s]", container.Image, ctnConfigString))
+	safeAPI(fmt.Sprintf("%s__%s", uid, container.Name), "postInstanceConfig", principal, uid, ctnName, fmt.Sprintf("[%s, %s]", container.Image, ctnConfigString))
 
 }
 
